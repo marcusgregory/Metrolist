@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import com.metrolist.music.wear.player.MediaPlayerAdapter
+import com.metrolist.music.wear.player.QueueItemInfo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -53,6 +54,12 @@ class PlayerViewModel @Inject constructor() : ViewModel() {
     private val _uiState = MutableStateFlow<PlayerUiState>(PlayerUiState.Loading)
     val uiState: StateFlow<PlayerUiState> = _uiState.asStateFlow()
 
+    private val _queue = MutableStateFlow<List<QueueItemInfo>>(emptyList())
+    val queue: StateFlow<List<QueueItemInfo>> = _queue.asStateFlow()
+
+    private val _currentIndex = MutableStateFlow(0)
+    val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+
     /**
      * Attach a MediaController to this ViewModel.
      * Creates the adapter and starts collecting state.
@@ -94,6 +101,19 @@ class PlayerViewModel @Inject constructor() : ViewModel() {
                 }
             }.collect { state ->
                 _uiState.value = state
+            }
+        }
+
+        // Collect queue updates
+        viewModelScope.launch {
+            adapter.queue.collect { queue ->
+                _queue.value = queue
+            }
+        }
+
+        viewModelScope.launch {
+            adapter.currentIndex.collect { index ->
+                _currentIndex.value = index
             }
         }
     }
@@ -149,6 +169,16 @@ class PlayerViewModel @Inject constructor() : ViewModel() {
     fun seekTo(positionMs: Long) {
         Timber.d("seekTo: $positionMs")
         adapter?.seekTo(positionMs)
+    }
+
+    fun playFromQueue(index: Int) {
+        Timber.d("playFromQueue: index=$index")
+        adapter?.seekToIndex(index)
+    }
+
+    fun removeFromQueue(index: Int) {
+        Timber.d("removeFromQueue: index=$index")
+        adapter?.removeFromQueue(index)
     }
 
     override fun onCleared() {

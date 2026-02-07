@@ -50,7 +50,8 @@ fun PlayerScreen(
     modifier: Modifier = Modifier,
     isAmbient: Boolean = false,
     onSearchClick: () -> Unit = {},
-    onVolumeClick: () -> Unit = {}
+    onVolumeClick: () -> Unit = {},
+    onQueueClick: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -73,6 +74,7 @@ fun PlayerScreen(
                     onPrevious = viewModel::skipPrevious,
                     onSearchClick = onSearchClick,
                     onVolumeClick = onVolumeClick,
+                    onQueueClick = onQueueClick,
                     onSeek = { offsetMs ->
                         // Get current position from uiState (not stale state)
                         val currentState = viewModel.uiState.value as? PlayerUiState.Ready
@@ -155,6 +157,7 @@ private fun PlayerContent(
     onPrevious: () -> Unit,
     onSearchClick: () -> Unit,
     onVolumeClick: () -> Unit,
+    onQueueClick: () -> Unit,
     onSeek: (Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -405,6 +408,23 @@ private fun PlayerContent(
                         Icon(
                             imageVector = VolumeIcon,
                             contentDescription = "Volume & Audio Output",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.requiredSize(18.dp)
+                        )
+                    }
+
+                    // Queue button
+                    Box(
+                        modifier = Modifier
+                            .requiredSize(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .clickable { onQueueClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = QueueIcon,
+                            contentDescription = "Queue",
                             tint = Color.White.copy(alpha = 0.7f),
                             modifier = Modifier.requiredSize(18.dp)
                         )

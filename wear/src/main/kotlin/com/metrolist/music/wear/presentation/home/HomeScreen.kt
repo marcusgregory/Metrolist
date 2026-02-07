@@ -24,7 +24,6 @@ import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.ButtonDefaults
-import androidx.wear.compose.material3.FilledTonalButton
 import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.ListHeader
 import androidx.wear.compose.material3.MaterialTheme
@@ -33,13 +32,12 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.metrolist.music.wear.data.db.HistoryEntity
-import com.metrolist.music.wear.presentation.PlayIcon
 import com.metrolist.music.wear.presentation.SearchIcon
 
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
-    hasNowPlaying: Boolean,
+    nowPlayingInfo: NowPlayingInfo?,
     isAmbient: Boolean = false,
     onSearchClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
@@ -71,11 +69,11 @@ fun HomeScreen(
 
         // In ambient mode, only show minimal info
         if (isAmbient) {
-            // In ambient mode, just show "Now Playing" if there's music
-            if (hasNowPlaying) {
+            // In ambient mode, just show song title if there's music
+            nowPlayingInfo?.let { info ->
                 item {
                     Text(
-                        text = "Music playing",
+                        text = info.title,
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.4f)
                     )
@@ -100,21 +98,13 @@ fun HomeScreen(
             }
         }
 
-        // Now Playing (if playing)
-        if (hasNowPlaying) {
+        // Now Playing chip with song info, thumbnail, and animated equalizer
+        nowPlayingInfo?.let { info ->
             item {
-                FilledTonalButton(
-                    onClick = onNowPlayingClick,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = PlayIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.size(4.dp))
-                    Text("Now Playing")
-                }
+                NowPlayingChip(
+                    info = info,
+                    onClick = onNowPlayingClick
+                )
             }
         }
 

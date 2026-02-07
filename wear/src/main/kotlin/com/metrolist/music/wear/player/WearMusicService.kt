@@ -14,6 +14,7 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
@@ -34,7 +35,10 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
@@ -50,8 +54,12 @@ class WearMusicService : MediaLibraryService() {
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaLibrarySession
 
-    private val scope = CoroutineScope(Dispatchers.Main + Job())
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val binder = MusicBinder()
+
+    // Radio queue for auto-play
+    private var currentRadioQueue: WearRadioQueue? = null
+    private var isRadioLoading = false
 
     // Cache de URLs em memoria (videoId -> (url, expirationTime))
     private val songUrlCache = mutableMapOf<String, Pair<String, Long>>()
@@ -87,6 +95,9 @@ class WearMusicService : MediaLibraryService() {
                 true
             )
             .build()
+
+        // Add listener for radio auto-play
+        player.addListener(RadioAutoPlayListener())
 
         mediaSession = MediaLibrarySession.Builder(this, player, MediaLibrarySessionCallback())
             .setSessionActivity(
@@ -195,6 +206,8 @@ class WearMusicService : MediaLibraryService() {
      */
     fun playQueue(items: List<QueueItem>) {
         Timber.d("playQueue: ${items.size} items")
+        // Clear radio queue when user explicitly plays something
+        clearRadioQueue()
         val mediaItems = items.map { buildMediaItem(it.videoId, it.title, it.artist, it.artworkUrl) }
         player.setMediaItems(mediaItems)
         player.prepare()
@@ -229,9 +242,124 @@ class WearMusicService : MediaLibraryService() {
      */
     fun getPlayer(): ExoPlayer = player
 
+    /**
+     * Skip to next with radio fallback.
+     * If on last item, loads radio first then skips.
+     */
+    fun skipNextWithRadio() {
+        val isLastItem = player.currentMediaItemIndex >= player.mediaItemCount - 1
+        if (isLastItem && !isRadioLoading) {
+            Timber.d("Last item, loading radio before skip")
+            scope.launch {
+                loadRadioForCurrentSong()
+                // After radio loads, skip to next
+                withContext(Dispatchers.Main) {
+                    if (player.hasNextMediaItem()) {
+                        player.seekToNext()
+                    }
+                }
+            }
+        } else if (player.hasNextMediaItem()) {
+            player.seekToNext()
+        }
+    }
+
     private inner class MediaLibrarySessionCallback : MediaLibrarySession.Callback {
         // Default implementation for now
         // Can be extended for custom media browser functionality
+    }
+
+    /**
+     * Listener for auto-playing radio when queue ends.
+     */
+    private inner class RadioAutoPlayListener : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            if (playbackState == Player.STATE_ENDED) {
+                val isLastItem = player.currentMediaItemIndex >= player.mediaItemCount - 1
+                if (isLastItem && !isRadioLoading) {
+                    Timber.d("Queue ended, loading radio")
+                    scope.launch { loadRadioForCurrentSong() }
+                }
+            }
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val remaining = player.mediaItemCount - player.currentMediaItemIndex - 1
+
+            // If on last item and no radio loaded yet, load initial radio
+            if (remaining == 0 && currentRadioQueue == null && !isRadioLoading) {
+                Timber.d("On last item, preloading initial radio")
+                scope.launch { loadRadioForCurrentSong() }
+            }
+            // If radio exists and few items remain, load more
+            else if (remaining <= 2 && currentRadioQueue?.hasNextPage() == true && !isRadioLoading) {
+                Timber.d("Preloading more radio songs, $remaining items remaining")
+                scope.launch { loadMoreFromRadio() }
+            }
+        }
+    }
+
+    /**
+     * Loads radio songs for the currently playing song.
+     */
+    private suspend fun loadRadioForCurrentSong() {
+        val currentId = player.currentMediaItem?.mediaId ?: return
+
+        isRadioLoading = true
+        try {
+            Timber.d("Loading radio for: $currentId")
+            currentRadioQueue = WearRadioQueue(currentId)
+            val items = currentRadioQueue!!.getInitialStatus()
+
+            if (items.isNotEmpty()) {
+                val mediaItems = items.map { buildMediaItem(it.videoId, it.title, it.artist, it.artworkUrl) }
+                withContext(Dispatchers.Main) {
+                    player.addMediaItems(mediaItems)
+                    // Resume playback if it ended
+                    if (player.playbackState == Player.STATE_ENDED) {
+                        player.seekToNext()
+                        player.play()
+                    }
+                }
+                Timber.d("Added ${items.size} radio songs to queue")
+            } else {
+                Timber.w("No radio songs found")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to load radio")
+        } finally {
+            isRadioLoading = false
+        }
+    }
+
+    /**
+     * Loads more songs from the current radio queue.
+     */
+    private suspend fun loadMoreFromRadio() {
+        val radioQueue = currentRadioQueue ?: return
+
+        isRadioLoading = true
+        try {
+            val items = radioQueue.nextPage()
+            if (items.isNotEmpty()) {
+                val mediaItems = items.map { buildMediaItem(it.videoId, it.title, it.artist, it.artworkUrl) }
+                withContext(Dispatchers.Main) {
+                    player.addMediaItems(mediaItems)
+                }
+                Timber.d("Added ${items.size} more radio songs")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to load more radio songs")
+        } finally {
+            isRadioLoading = false
+        }
+    }
+
+    /**
+     * Clears the current radio queue (called when user explicitly plays a song).
+     */
+    fun clearRadioQueue() {
+        currentRadioQueue = null
     }
 
     companion object {

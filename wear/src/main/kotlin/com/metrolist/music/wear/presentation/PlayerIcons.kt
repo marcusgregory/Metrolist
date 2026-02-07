@@ -160,6 +160,49 @@ val SearchIcon: ImageVector
         }
     }.build()
 
+val QueueIcon: ImageVector
+    get() = ImageVector.Builder(
+        name = "Queue",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black),
+            fillAlpha = 1f,
+            stroke = null,
+            strokeAlpha = 1f,
+            strokeLineWidth = 1f,
+            strokeLineCap = StrokeCap.Butt,
+            strokeLineJoin = StrokeJoin.Miter,
+            strokeLineMiter = 1f,
+            pathFillType = PathFillType.NonZero
+        ) {
+            // Three horizontal lines (queue/list icon)
+            moveTo(3f, 6f)
+            horizontalLineTo(21f)
+            verticalLineTo(8f)
+            horizontalLineTo(3f)
+            close()
+            moveTo(3f, 11f)
+            horizontalLineTo(21f)
+            verticalLineTo(13f)
+            horizontalLineTo(3f)
+            close()
+            moveTo(3f, 16f)
+            horizontalLineTo(15f)
+            verticalLineTo(18f)
+            horizontalLineTo(3f)
+            close()
+            // Play triangle on bottom right
+            moveTo(17f, 14f)
+            lineTo(17f, 20f)
+            lineTo(22f, 17f)
+            close()
+        }
+    }.build()
+
 val VolumeIcon: ImageVector
     get() = ImageVector.Builder(
         name = "Volume",
