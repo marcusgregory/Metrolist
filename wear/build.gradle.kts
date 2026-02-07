@@ -97,6 +97,20 @@ dependencies {
     // Utils
     implementation(libs.timber)
 
+    // Room Database
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Horologist - Wear OS utilities (audio UI + ambient mode + media3 backend)
+    implementation("com.google.android.horologist:horologist-audio-ui:0.6.22")
+    implementation("com.google.android.horologist:horologist-audio:0.6.22")
+    implementation("com.google.android.horologist:horologist-compose-layout:0.6.22")
+    implementation("com.google.android.horologist:horologist-media3-backend:0.6.22")
+
+    // Wear Ambient Mode
+    implementation("androidx.wear:wear:1.3.0")
+
     // Desugaring
     coreLibraryDesugaring(libs.desugaring)
 }

@@ -48,8 +48,9 @@ import kotlinx.coroutines.delay
 fun PlayerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier,
+    isAmbient: Boolean = false,
     onSearchClick: () -> Unit = {},
-    onPlayTest: (() -> Unit)? = null
+    onVolumeClick: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -61,15 +62,17 @@ fun PlayerScreen(
     ) {
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
-                LoadingContent(onPlayTest = onPlayTest, onSearchClick = onSearchClick)
+                LoadingContent(onSearchClick = onSearchClick)
             }
             is PlayerUiState.Ready -> {
                 PlayerContent(
                     state = state,
+                    isAmbient = isAmbient,
                     onPlayPause = viewModel::togglePlayPause,
                     onNext = viewModel::skipNext,
                     onPrevious = viewModel::skipPrevious,
                     onSearchClick = onSearchClick,
+                    onVolumeClick = onVolumeClick,
                     onSeek = { offsetMs ->
                         // Get current position from uiState (not stale state)
                         val currentState = viewModel.uiState.value as? PlayerUiState.Ready
@@ -89,7 +92,6 @@ fun PlayerScreen(
 
 @Composable
 private fun LoadingContent(
-    onPlayTest: (() -> Unit)? = null,
     onSearchClick: () -> Unit = {}
 ) {
     Column(
@@ -119,14 +121,6 @@ private fun LoadingContent(
             Spacer(modifier = Modifier.requiredSize(4.dp))
             Text("Search")
         }
-        if (onPlayTest != null) {
-            Spacer(modifier = Modifier.height(8.dp))
-            androidx.wear.compose.material3.FilledTonalButton(
-                onClick = onPlayTest
-            ) {
-                Text("Play Test")
-            }
-        }
     }
 }
 
@@ -155,13 +149,21 @@ private fun ErrorContent(message: String) {
 @Composable
 private fun PlayerContent(
     state: PlayerUiState.Ready,
+    isAmbient: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSearchClick: () -> Unit,
+    onVolumeClick: () -> Unit,
     onSeek: (Long) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+
+    // In ambient mode, use simplified colors for burn-in protection
+    val textColor = if (isAmbient) Color.White.copy(alpha = 0.6f) else Color.White
+    val secondaryTextColor = if (isAmbient) Color.White.copy(alpha = 0.4f) else Color.White.copy(alpha = 0.7f)
+    val buttonBgColor = if (isAmbient) Color.Transparent else Color.White.copy(alpha = 0.9f)
+    val buttonIconColor = if (isAmbient) Color.White.copy(alpha = 0.6f) else Color.Black
 
     // Track seek state
     var seekOffsetMs by remember { mutableLongStateOf(0L) }
@@ -177,19 +179,21 @@ private fun PlayerContent(
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        // Background artwork with dark overlay
-        state.artworkUri?.let { uri ->
-            AsyncImage(
-                model = uri,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.75f))
-            )
+        // Background artwork with dark overlay (hide in ambient mode for burn-in protection)
+        if (!isAmbient) {
+            state.artworkUri?.let { uri ->
+                AsyncImage(
+                    model = uri,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.75f))
+                )
+            }
         }
 
         // TimeText at top (curved)
@@ -205,7 +209,7 @@ private fun PlayerContent(
             Text(
                 text = state.title,
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White,
+                color = textColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -215,7 +219,7 @@ private fun PlayerContent(
             Text(
                 text = state.artist,
                 style = MaterialTheme.typography.bodySmall,
-                color = Color.White.copy(alpha = 0.7f),
+                color = secondaryTextColor,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
@@ -224,7 +228,7 @@ private fun PlayerContent(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Controls - filled buttons, smaller
+            // Controls - filled buttons, smaller (simplified in ambient mode)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -235,45 +239,50 @@ private fun PlayerContent(
                         .requiredSize(44.dp)
                         .clip(CircleShape)
                         .background(
-                            if (seekOffsetMs < 0L) Color.White.copy(alpha = 0.7f)
+                            if (isAmbient) Color.Transparent
+                            else if (seekOffsetMs < 0L) Color.White.copy(alpha = 0.7f)
                             else Color.White.copy(alpha = 0.9f)
                         )
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onPrevious() },
-                                onLongPress = {
-                                    // Start accumulating seek offset
-                                    seekJob = scope.launch {
-                                        while (true) {
-                                            seekOffsetMs -= 5000L
-                                            delay(300L)
+                        .pointerInput(isAmbient) {
+                            if (!isAmbient) {
+                                detectTapGestures(
+                                    onTap = { onPrevious() },
+                                    onLongPress = {
+                                        // Start accumulating seek offset
+                                        seekJob = scope.launch {
+                                            while (true) {
+                                                seekOffsetMs -= 5000L
+                                                delay(300L)
+                                            }
+                                        }
+                                    },
+                                    onPress = {
+                                        tryAwaitRelease()
+                                        // On release: cancel job and apply seek
+                                        seekJob?.cancel()
+                                        seekJob = null
+                                        if (seekOffsetMs < 0L) {
+                                            onSeek(seekOffsetMs)
+                                            seekOffsetMs = 0L
                                         }
                                     }
-                                },
-                                onPress = {
-                                    tryAwaitRelease()
-                                    // On release: cancel job and apply seek
-                                    seekJob?.cancel()
-                                    seekJob = null
-                                    if (seekOffsetMs < 0L) {
-                                        onSeek(seekOffsetMs)
-                                        seekOffsetMs = 0L
-                                    }
-                                }
-                            )
+                                )
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = SkipPreviousIcon,
                         contentDescription = "Previous (hold to rewind)",
-                        tint = Color.Black,
+                        tint = buttonIconColor,
                         modifier = Modifier.requiredSize(24.dp)
                     )
                 }
 
                 // Play/Pause - with progress ring around it
                 val progressAngle = 360f * previewProgress
+                val ringColor = if (isAmbient) Color.White.copy(alpha = 0.3f) else Color.White
+                val ringTrackColor = if (isAmbient) Color.White.copy(alpha = 0.1f) else Color.White.copy(alpha = 0.2f)
                 Box(
                     modifier = Modifier
                         .requiredSize(64.dp) // Slightly larger to accommodate progress ring
@@ -283,7 +292,7 @@ private fun PlayerContent(
 
                             // Track (background ring)
                             drawCircle(
-                                color = Color.White.copy(alpha = 0.2f),
+                                color = ringTrackColor,
                                 radius = radius,
                                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                             )
@@ -291,7 +300,7 @@ private fun PlayerContent(
                             // Progress arc (yellow tint when seeking to show preview)
                             if (progressAngle > 0f) {
                                 drawArc(
-                                    color = if (isSeeking) Color(0xFFFFD700) else Color.White,
+                                    color = if (isSeeking) Color(0xFFFFD700) else ringColor,
                                     startAngle = -90f,
                                     sweepAngle = progressAngle,
                                     useCenter = false,
@@ -307,13 +316,14 @@ private fun PlayerContent(
                             .requiredSize(52.dp)
                             .clip(CircleShape)
                             .background(
-                                if (state.isBuffering) Color.White.copy(alpha = 0.7f)
+                                if (isAmbient) Color.Transparent
+                                else if (state.isBuffering) Color.White.copy(alpha = 0.7f)
                                 else Color.White
                             )
-                            .clickable(enabled = !state.isBuffering) { onPlayPause() },
+                            .clickable(enabled = !state.isBuffering && !isAmbient) { onPlayPause() },
                         contentAlignment = Alignment.Center
                     ) {
-                        if (state.isBuffering) {
+                        if (state.isBuffering && !isAmbient) {
                             CircularProgressIndicator(
                                 modifier = Modifier.requiredSize(24.dp),
                                 strokeWidth = 2.dp
@@ -322,7 +332,7 @@ private fun PlayerContent(
                             Icon(
                                 imageVector = if (state.isPlaying) PauseIcon else PlayIcon,
                                 contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                tint = Color.Black,
+                                tint = buttonIconColor,
                                 modifier = Modifier.requiredSize(28.dp)
                             )
                         }
@@ -335,60 +345,88 @@ private fun PlayerContent(
                         .requiredSize(44.dp)
                         .clip(CircleShape)
                         .background(
-                            if (seekOffsetMs > 0L) Color.White.copy(alpha = 0.7f)
+                            if (isAmbient) Color.Transparent
+                            else if (seekOffsetMs > 0L) Color.White.copy(alpha = 0.7f)
                             else Color.White.copy(alpha = 0.9f)
                         )
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onNext() },
-                                onLongPress = {
-                                    // Start accumulating seek offset
-                                    seekJob = scope.launch {
-                                        while (true) {
-                                            seekOffsetMs += 5000L
-                                            delay(300L)
+                        .pointerInput(isAmbient) {
+                            if (!isAmbient) {
+                                detectTapGestures(
+                                    onTap = { onNext() },
+                                    onLongPress = {
+                                        // Start accumulating seek offset
+                                        seekJob = scope.launch {
+                                            while (true) {
+                                                seekOffsetMs += 5000L
+                                                delay(300L)
+                                            }
+                                        }
+                                    },
+                                    onPress = {
+                                        tryAwaitRelease()
+                                        // On release: cancel job and apply seek
+                                        seekJob?.cancel()
+                                        seekJob = null
+                                        if (seekOffsetMs > 0L) {
+                                            onSeek(seekOffsetMs)
+                                            seekOffsetMs = 0L
                                         }
                                     }
-                                },
-                                onPress = {
-                                    tryAwaitRelease()
-                                    // On release: cancel job and apply seek
-                                    seekJob?.cancel()
-                                    seekJob = null
-                                    if (seekOffsetMs > 0L) {
-                                        onSeek(seekOffsetMs)
-                                        seekOffsetMs = 0L
-                                    }
-                                }
-                            )
+                                )
+                            }
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = SkipNextIcon,
                         contentDescription = "Next (hold to fast-forward)",
-                        tint = Color.Black,
+                        tint = buttonIconColor,
                         modifier = Modifier.requiredSize(24.dp)
                     )
                 }
             }
 
-            // Search button
-            Spacer(modifier = Modifier.height(8.dp))
-            Box(
-                modifier = Modifier
-                    .requiredSize(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.2f))
-                    .clickable { onSearchClick() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = SearchIcon,
-                    contentDescription = "Search",
-                    tint = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.requiredSize(18.dp)
-                )
+            // Bottom buttons row (hide in ambient mode)
+            if (!isAmbient) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Volume button
+                    Box(
+                        modifier = Modifier
+                            .requiredSize(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .clickable { onVolumeClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = VolumeIcon,
+                            contentDescription = "Volume & Audio Output",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.requiredSize(18.dp)
+                        )
+                    }
+
+                    // Search button
+                    Box(
+                        modifier = Modifier
+                            .requiredSize(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f))
+                            .clickable { onSearchClick() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = SearchIcon,
+                            contentDescription = "Search",
+                            tint = Color.White.copy(alpha = 0.7f),
+                            modifier = Modifier.requiredSize(18.dp)
+                        )
+                    }
+                }
             }
         }
     }

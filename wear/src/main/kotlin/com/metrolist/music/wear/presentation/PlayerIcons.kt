@@ -159,3 +159,52 @@ val SearchIcon: ImageVector
             lineTo(16.65f, 16.65f)
         }
     }.build()
+
+val VolumeIcon: ImageVector
+    get() = ImageVector.Builder(
+        name = "Volume",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(
+            fill = SolidColor(Color.Black),
+            fillAlpha = 1f,
+            stroke = null,
+            strokeAlpha = 1f,
+            strokeLineWidth = 1f,
+            strokeLineCap = StrokeCap.Butt,
+            strokeLineJoin = StrokeJoin.Miter,
+            strokeLineMiter = 1f,
+            pathFillType = PathFillType.NonZero
+        ) {
+            // Speaker body
+            moveTo(3f, 9f)
+            verticalLineTo(15f)
+            horizontalLineTo(7f)
+            lineTo(12f, 20f)
+            verticalLineTo(4f)
+            lineTo(7f, 9f)
+            close()
+        }
+        path(
+            fill = null,
+            fillAlpha = 1f,
+            stroke = SolidColor(Color.Black),
+            strokeAlpha = 1f,
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            strokeLineMiter = 1f,
+            pathFillType = PathFillType.NonZero
+        ) {
+            // Sound waves
+            moveTo(15.54f, 8.46f)
+            arcTo(5f, 5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 17f, 12f)
+            arcTo(5f, 5f, 0f, isMoreThanHalf = false, isPositiveArc = true, 15.54f, 15.54f)
+            moveTo(18.07f, 5.93f)
+            arcTo(10f, 10f, 0f, isMoreThanHalf = false, isPositiveArc = true, 21f, 12f)
+            arcTo(10f, 10f, 0f, isMoreThanHalf = false, isPositiveArc = true, 18.07f, 18.07f)
+        }
+    }.build()
