@@ -39,6 +39,10 @@ import com.metrolist.music.wear.data.model.WearArtist
 import com.metrolist.music.wear.data.model.WearPlaylist
 import com.metrolist.music.wear.presentation.search.SearchScreen
 import com.metrolist.music.wear.presentation.search.WearSong
+import com.metrolist.music.wear.presentation.settings.SettingsScreen
+import com.metrolist.music.wear.auth.LibraryPlaylist
+import com.metrolist.music.wear.presentation.library.LikedSongsScreen
+import com.metrolist.music.wear.presentation.library.PlaylistsScreen
 import com.metrolist.music.wear.presentation.theme.WearTheme
 import com.metrolist.music.wear.presentation.volume.WearVolumeScreen
 import dagger.hilt.android.AndroidEntryPoint
@@ -138,6 +142,17 @@ class MainActivity : ComponentActivity() {
             }
 
             WearTheme {
+                // Show loading while checking auth state
+                if (isLoggedIn == null) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                    return@WearTheme
+                }
+
                 // AmbientAware from Horologist handles ambient mode properly
                 AmbientAware { ambientState ->
                     val isAmbient = ambientState is AmbientState.Ambient
@@ -153,9 +168,15 @@ class MainActivity : ComponentActivity() {
                         onPlayAlbum = { album, songs -> playAlbum(album, songs) },
                         onPlayArtist = { artist, songs -> playArtist(artist, songs) },
                         onPlayPlaylist = { playlist, songs -> playPlaylist(playlist, songs) },
+                        onPlayLibraryPlaylist = { playlist, songs -> playLibraryPlaylist(playlist, songs) },
                         onLoginSuccess = {
                             lifecycleScope.launch {
                                 _isLoggedIn.value = true
+                            }
+                        },
+                        onLogoutSuccess = {
+                            lifecycleScope.launch {
+                                _isLoggedIn.value = false
                             }
                         }
                     )
@@ -318,6 +339,43 @@ class MainActivity : ComponentActivity() {
         }, BIND_AUTO_CREATE)
     }
 
+    private fun playLibraryPlaylist(playlist: LibraryPlaylist, songs: List<WearSong>) {
+        if (songs.isEmpty()) return
+
+        Timber.d("Playing library playlist: ${playlist.title} with ${songs.size} songs")
+
+        // Add first song to history
+        val firstSong = songs.first()
+        lifecycleScope.launch {
+            historyRepository.addToHistory(
+                id = firstSong.id,
+                title = firstSong.title,
+                artist = firstSong.artist,
+                thumbnailUrl = firstSong.thumbnailUrl
+            )
+        }
+
+        val intent = android.content.Intent(this, WearMusicService::class.java)
+        bindService(intent, object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: android.os.IBinder?) {
+                val binder = service as WearMusicService.MusicBinder
+                binder.service.playQueue(
+                    songs.map { song ->
+                        WearMusicService.QueueItem(
+                            videoId = song.id,
+                            title = song.title,
+                            artist = song.artist,
+                            artworkUrl = song.thumbnailUrl
+                        )
+                    }
+                )
+                unbindService(this)
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }, BIND_AUTO_CREATE)
+    }
+
     private fun playAlbum(album: WearAlbum, songs: List<WearSong>) {
         if (songs.isEmpty()) return
 
@@ -403,16 +461,16 @@ fun WearNavigation(
     onPlayAlbum: (WearAlbum, List<WearSong>) -> Unit,
     onPlayArtist: (WearArtist, List<WearSong>) -> Unit,
     onPlayPlaylist: (WearPlaylist, List<WearSong>) -> Unit,
-    onLoginSuccess: () -> Unit
+    onPlayLibraryPlaylist: (LibraryPlaylist, List<WearSong>) -> Unit,
+    onLoginSuccess: () -> Unit,
+    onLogoutSuccess: () -> Unit
 ) {
     val navController = rememberSwipeDismissableNavController()
 
-    // Determine start destination based on auth state
-    // OAuth credentials are now fetched dynamically from YouTube's base.js
-    val startDestination = remember(isLoggedIn) {
+    // Determine start destination - login is optional, not required
+    // Users can use search/history without login, library features require login
+    val startDestination = remember(isLoggedIn, startOnPlayer) {
         when {
-            isLoggedIn == null -> "loading" // Still checking auth
-            !isLoggedIn -> "login" // Redirect to login
             startOnPlayer -> "player"
             else -> "home"
         }
@@ -422,15 +480,6 @@ fun WearNavigation(
         navController = navController,
         startDestination = startDestination
     ) {
-        composable("loading") {
-            // Simple loading screen while checking auth
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
         composable("login") {
             LoginScreen(
                 onLoginSuccess = {
@@ -445,6 +494,7 @@ fun WearNavigation(
             HomeScreen(
                 nowPlayingInfo = nowPlayingInfo,
                 isAmbient = isAmbient,
+                isLoggedIn = isLoggedIn == true,
                 onSearchClick = {
                     navController.navigate("search") {
                         launchSingleTop = true
@@ -459,6 +509,58 @@ fun WearNavigation(
                     onPlayHistoryItem(item)
                     navController.navigate("player") {
                         launchSingleTop = true
+                    }
+                },
+                onSettingsClick = {
+                    navController.navigate("settings") {
+                        launchSingleTop = true
+                    }
+                },
+                onLoginClick = {
+                    navController.navigate("login") {
+                        launchSingleTop = true
+                    }
+                },
+                onLikedSongsClick = {
+                    navController.navigate("liked-songs") {
+                        launchSingleTop = true
+                    }
+                },
+                onPlaylistsClick = {
+                    navController.navigate("playlists") {
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable("liked-songs") {
+            LikedSongsScreen(
+                onSongClick = { song ->
+                    onPlaySong(song)
+                    navController.navigate("player") {
+                        popUpTo("home")
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable("playlists") {
+            PlaylistsScreen(
+                onPlaylistPlay = { playlist, songs ->
+                    onPlayLibraryPlaylist(playlist, songs)
+                    navController.navigate("player") {
+                        popUpTo("home")
+                        launchSingleTop = true
+                    }
+                }
+            )
+        }
+        composable("settings") {
+            SettingsScreen(
+                onLogout = {
+                    onLogoutSuccess()
+                    navController.navigate("home") {
+                        popUpTo("settings") { inclusive = true }
                     }
                 }
             )

@@ -32,6 +32,9 @@ import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import com.metrolist.music.wear.data.db.HistoryEntity
+import com.metrolist.music.wear.presentation.HeartIcon
+import com.metrolist.music.wear.presentation.PersonIcon
+import com.metrolist.music.wear.presentation.PlaylistIcon
 import com.metrolist.music.wear.presentation.SearchIcon
 
 @Composable
@@ -39,9 +42,14 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     nowPlayingInfo: NowPlayingInfo?,
     isAmbient: Boolean = false,
+    isLoggedIn: Boolean = false,
     onSearchClick: () -> Unit,
     onNowPlayingClick: () -> Unit,
     onHistoryItemClick: (HistoryEntity) -> Unit,
+    onSettingsClick: () -> Unit,
+    onLoginClick: () -> Unit = {},
+    onLikedSongsClick: () -> Unit = {},
+    onPlaylistsClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val recentHistory by viewModel.recentHistory.collectAsState(initial = emptyList())
@@ -95,6 +103,77 @@ fun HomeScreen(
                 )
                 Spacer(modifier = Modifier.size(4.dp))
                 Text("Search")
+            }
+        }
+
+        // Library buttons - only show when logged in
+        if (isLoggedIn) {
+            // Liked Songs Button
+            item {
+                Button(
+                    onClick = onLikedSongsClick,
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = HeartIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Liked Songs")
+                }
+            }
+
+            // Playlists Button
+            item {
+                Button(
+                    onClick = onPlaylistsClick,
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = PlaylistIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Playlists")
+                }
+            }
+
+            // Account Button
+            item {
+                Button(
+                    onClick = onSettingsClick,
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = PersonIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Account")
+                }
+            }
+        } else {
+            // Login Button - show when not logged in
+            item {
+                Button(
+                    onClick = onLoginClick,
+                    colors = ButtonDefaults.filledTonalButtonColors(),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = PersonIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.size(4.dp))
+                    Text("Login")
+                }
             }
         }
 
