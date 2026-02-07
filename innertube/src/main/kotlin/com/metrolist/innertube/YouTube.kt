@@ -118,6 +118,12 @@ object YouTube {
             innerTube.useLoginForBrowse = value
         }
 
+    var bearerToken: String?
+        get() = innerTube.bearerToken
+        set(value) {
+            innerTube.bearerToken = value
+        }
+
     suspend fun searchSuggestions(query: String): Result<SearchSuggestions> = runCatching {
         val response = innerTube.getSearchSuggestions(WEB_REMIX, query).body<GetSearchSuggestionsResponse>()
         SearchSuggestions(

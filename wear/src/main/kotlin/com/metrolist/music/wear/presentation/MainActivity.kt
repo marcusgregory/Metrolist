@@ -6,11 +6,15 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.wear.compose.material3.CircularProgressIndicator
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -24,8 +28,10 @@ import com.google.android.horologist.compose.ambient.AmbientAware
 import com.google.android.horologist.compose.ambient.AmbientState
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.music.wear.data.db.HistoryEntity
+import com.metrolist.music.wear.auth.TokenManager
 import com.metrolist.music.wear.data.repository.HistoryRepository
 import com.metrolist.music.wear.player.WearMusicService
+import com.metrolist.music.wear.presentation.login.LoginScreen
 import com.metrolist.music.wear.presentation.home.HomeScreen
 import com.metrolist.music.wear.presentation.home.NowPlayingInfo
 import com.metrolist.music.wear.data.model.WearAlbum
@@ -54,6 +60,12 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var historyRepository: HistoryRepository
 
+    @Inject
+    lateinit var tokenManager: TokenManager
+
+    // Auth state
+    private val _isLoggedIn = kotlinx.coroutines.flow.MutableStateFlow<Boolean?>(null)
+
     // ServiceConnection to check playback state directly
     private val serviceConnection = object : android.content.ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: android.os.IBinder?) {
@@ -77,6 +89,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         Timber.d("MainActivity onCreate")
 
+        // Initialize auth
+        lifecycleScope.launch {
+            tokenManager.initialize()
+            _isLoggedIn.value = tokenManager.isLoggedIn()
+            Timber.d("Auth initialized, isLoggedIn: ${_isLoggedIn.value}")
+        }
+
         // Bind to service early to check playback state
         bindToMusicService()
 
@@ -85,6 +104,7 @@ class MainActivity : ComponentActivity() {
             intent?.hasCategory(Intent.CATEGORY_LAUNCHER) == false
 
         setContent {
+            val isLoggedIn by _isLoggedIn.collectAsState()
             val uiState by playerViewModel.uiState.collectAsState()
             val serviceHasMedia by _serviceHasMedia.collectAsState()
 
@@ -126,12 +146,18 @@ class MainActivity : ComponentActivity() {
                         playerViewModel = playerViewModel,
                         nowPlayingInfo = nowPlayingInfo,
                         isAmbient = isAmbient,
+                        isLoggedIn = isLoggedIn,
                         startOnPlayer = openedFromNotification,
                         onPlaySong = { song -> playSong(song) },
                         onPlayHistoryItem = { item -> playHistoryItem(item) },
                         onPlayAlbum = { album, songs -> playAlbum(album, songs) },
                         onPlayArtist = { artist, songs -> playArtist(artist, songs) },
-                        onPlayPlaylist = { playlist, songs -> playPlaylist(playlist, songs) }
+                        onPlayPlaylist = { playlist, songs -> playPlaylist(playlist, songs) },
+                        onLoginSuccess = {
+                            lifecycleScope.launch {
+                                _isLoggedIn.value = true
+                            }
+                        }
                     )
                 }
             }
@@ -370,22 +396,51 @@ fun WearNavigation(
     playerViewModel: PlayerViewModel,
     nowPlayingInfo: NowPlayingInfo?,
     isAmbient: Boolean,
+    isLoggedIn: Boolean?,
     startOnPlayer: Boolean = false,
     onPlaySong: (WearSong) -> Unit,
     onPlayHistoryItem: (HistoryEntity) -> Unit,
     onPlayAlbum: (WearAlbum, List<WearSong>) -> Unit,
     onPlayArtist: (WearArtist, List<WearSong>) -> Unit,
-    onPlayPlaylist: (WearPlaylist, List<WearSong>) -> Unit
+    onPlayPlaylist: (WearPlaylist, List<WearSong>) -> Unit,
+    onLoginSuccess: () -> Unit
 ) {
     val navController = rememberSwipeDismissableNavController()
 
-    // Remember start destination to avoid flicker on recomposition
-    val startDestination = remember { if (startOnPlayer) "player" else "home" }
+    // Determine start destination based on auth state
+    // OAuth credentials are now fetched dynamically from YouTube's base.js
+    val startDestination = remember(isLoggedIn) {
+        when {
+            isLoggedIn == null -> "loading" // Still checking auth
+            !isLoggedIn -> "login" // Redirect to login
+            startOnPlayer -> "player"
+            else -> "home"
+        }
+    }
 
     SwipeDismissableNavHost(
         navController = navController,
         startDestination = startDestination
     ) {
+        composable("loading") {
+            // Simple loading screen while checking auth
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+        composable("login") {
+            LoginScreen(
+                onLoginSuccess = {
+                    onLoginSuccess()
+                    navController.navigate("home") {
+                        popUpTo("login") { inclusive = true }
+                    }
+                }
+            )
+        }
         composable("home") {
             HomeScreen(
                 nowPlayingInfo = nowPlayingInfo,

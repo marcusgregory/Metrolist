@@ -43,6 +43,7 @@ class InnerTube {
     )
     var visitorData: String? = null
     var dataSyncId: String? = null
+    var bearerToken: String? = null
     var cookie: String? = null
         set(value) {
             field = value
@@ -151,7 +152,11 @@ class InnerTube {
             append("Referer", YouTubeClient.REFERER_YOUTUBE_MUSIC)
             visitorData?.let { append("X-Goog-Visitor-Id", it) }
             if (setLogin && client.loginSupported) {
-                cookie?.let { cookie ->
+                // Priority: Bearer token first (OAuth2), then SAPISIDHASH (cookie-based)
+                bearerToken?.let { token ->
+                    append("Authorization", "Bearer $token")
+                } ?: cookie?.let { cookie ->
+                    // Fallback: SAPISIDHASH (cookie-based auth)
                     append("cookie", cookie)
                     if ("SAPISID" !in cookieMap) return@let
                     val currentTime = System.currentTimeMillis() / 1000

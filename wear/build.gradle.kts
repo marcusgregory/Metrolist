@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.hilt)
     alias(libs.plugins.kotlin.ksp)
     alias(libs.plugins.compose.compiler)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -101,6 +102,18 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+
+    // DataStore for token persistence
+    implementation(libs.datastore)
+
+    // ZXing for QR Code generation
+    implementation(libs.zxing.core)
+
+    // Ktor for OAuth HTTP calls
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
 
     // Horologist - Wear OS utilities (audio UI + ambient mode + media3 backend)
     implementation("com.google.android.horologist:horologist-audio-ui:0.6.22")
