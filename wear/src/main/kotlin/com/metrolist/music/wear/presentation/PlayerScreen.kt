@@ -17,9 +17,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +48,7 @@ import kotlinx.coroutines.delay
 fun PlayerScreen(
     viewModel: PlayerViewModel,
     modifier: Modifier = Modifier,
+    onSearchClick: () -> Unit = {},
     onPlayTest: (() -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -56,7 +61,7 @@ fun PlayerScreen(
     ) {
         when (val state = uiState) {
             is PlayerUiState.Loading -> {
-                LoadingContent(onPlayTest = onPlayTest)
+                LoadingContent(onPlayTest = onPlayTest, onSearchClick = onSearchClick)
             }
             is PlayerUiState.Ready -> {
                 PlayerContent(
@@ -64,8 +69,15 @@ fun PlayerScreen(
                     onPlayPause = viewModel::togglePlayPause,
                     onNext = viewModel::skipNext,
                     onPrevious = viewModel::skipPrevious,
-                    onSeekForward = { viewModel.seekTo(state.position + 5000L) },
-                    onSeekBackward = { viewModel.seekTo((state.position - 5000L).coerceAtLeast(0L)) }
+                    onSearchClick = onSearchClick,
+                    onSeek = { offsetMs ->
+                        // Get current position from uiState (not stale state)
+                        val currentState = viewModel.uiState.value as? PlayerUiState.Ready
+                        val currentPosition = currentState?.position ?: state.position
+                        val duration = currentState?.duration ?: state.duration
+                        val newPosition = (currentPosition + offsetMs).coerceIn(0L, duration)
+                        viewModel.seekTo(newPosition)
+                    }
                 )
             }
             is PlayerUiState.Error -> {
@@ -76,7 +88,10 @@ fun PlayerScreen(
 }
 
 @Composable
-private fun LoadingContent(onPlayTest: (() -> Unit)? = null) {
+private fun LoadingContent(
+    onPlayTest: (() -> Unit)? = null,
+    onSearchClick: () -> Unit = {}
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -92,9 +107,21 @@ private fun LoadingContent(onPlayTest: (() -> Unit)? = null) {
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(modifier = Modifier.height(16.dp))
+        androidx.wear.compose.material3.Button(
+            onClick = onSearchClick
+        ) {
+            Icon(
+                imageVector = SearchIcon,
+                contentDescription = null,
+                modifier = Modifier.requiredSize(16.dp)
+            )
+            Spacer(modifier = Modifier.requiredSize(4.dp))
+            Text("Search")
+        }
         if (onPlayTest != null) {
-            Spacer(modifier = Modifier.height(16.dp))
-            androidx.wear.compose.material3.Button(
+            Spacer(modifier = Modifier.height(8.dp))
+            androidx.wear.compose.material3.FilledTonalButton(
                 onClick = onPlayTest
             ) {
                 Text("Play Test")
@@ -131,26 +158,22 @@ private fun PlayerContent(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
-    onSeekForward: () -> Unit,
-    onSeekBackward: () -> Unit
+    onSearchClick: () -> Unit,
+    onSeek: (Long) -> Unit
 ) {
-    // Track long-press state for continuous seeking
-    var isLongPressingNext by remember { mutableStateOf(false) }
-    var isLongPressingPrev by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    // Continuous seek while long-pressing
-    LaunchedEffect(isLongPressingNext) {
-        while (isLongPressingNext) {
-            onSeekForward()
-            delay(200L) // Seek every 200ms while holding
-        }
-    }
+    // Track seek state
+    var seekOffsetMs by remember { mutableLongStateOf(0L) }
+    var seekJob by remember { mutableStateOf<Job?>(null) }
 
-    LaunchedEffect(isLongPressingPrev) {
-        while (isLongPressingPrev) {
-            onSeekBackward()
-            delay(200L) // Seek every 200ms while holding
-        }
+    // Calculate preview progress while seeking
+    val isSeeking = seekOffsetMs != 0L
+    val previewProgress = if (isSeeking) {
+        val previewPosition = (state.position + seekOffsetMs).coerceIn(0L, state.duration)
+        if (state.duration > 0) (previewPosition.toFloat() / state.duration).coerceIn(0f, 1f) else 0f
+    } else {
+        state.progress
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
@@ -212,16 +235,30 @@ private fun PlayerContent(
                         .requiredSize(44.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isLongPressingPrev) Color.White.copy(alpha = 0.7f)
+                            if (seekOffsetMs < 0L) Color.White.copy(alpha = 0.7f)
                             else Color.White.copy(alpha = 0.9f)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onTap = { onPrevious() },
-                                onLongPress = { isLongPressingPrev = true },
+                                onLongPress = {
+                                    // Start accumulating seek offset
+                                    seekJob = scope.launch {
+                                        while (true) {
+                                            seekOffsetMs -= 5000L
+                                            delay(300L)
+                                        }
+                                    }
+                                },
                                 onPress = {
                                     tryAwaitRelease()
-                                    isLongPressingPrev = false
+                                    // On release: cancel job and apply seek
+                                    seekJob?.cancel()
+                                    seekJob = null
+                                    if (seekOffsetMs < 0L) {
+                                        onSeek(seekOffsetMs)
+                                        seekOffsetMs = 0L
+                                    }
                                 }
                             )
                         },
@@ -236,7 +273,7 @@ private fun PlayerContent(
                 }
 
                 // Play/Pause - with progress ring around it
-                val progressAngle = 360f * state.progress.coerceIn(0f, 1f)
+                val progressAngle = 360f * previewProgress
                 Box(
                     modifier = Modifier
                         .requiredSize(64.dp) // Slightly larger to accommodate progress ring
@@ -251,10 +288,10 @@ private fun PlayerContent(
                                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
                             )
 
-                            // Progress arc
+                            // Progress arc (yellow tint when seeking to show preview)
                             if (progressAngle > 0f) {
                                 drawArc(
-                                    color = Color.White,
+                                    color = if (isSeeking) Color(0xFFFFD700) else Color.White,
                                     startAngle = -90f,
                                     sweepAngle = progressAngle,
                                     useCenter = false,
@@ -298,16 +335,30 @@ private fun PlayerContent(
                         .requiredSize(44.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isLongPressingNext) Color.White.copy(alpha = 0.7f)
+                            if (seekOffsetMs > 0L) Color.White.copy(alpha = 0.7f)
                             else Color.White.copy(alpha = 0.9f)
                         )
                         .pointerInput(Unit) {
                             detectTapGestures(
                                 onTap = { onNext() },
-                                onLongPress = { isLongPressingNext = true },
+                                onLongPress = {
+                                    // Start accumulating seek offset
+                                    seekJob = scope.launch {
+                                        while (true) {
+                                            seekOffsetMs += 5000L
+                                            delay(300L)
+                                        }
+                                    }
+                                },
                                 onPress = {
                                     tryAwaitRelease()
-                                    isLongPressingNext = false
+                                    // On release: cancel job and apply seek
+                                    seekJob?.cancel()
+                                    seekJob = null
+                                    if (seekOffsetMs > 0L) {
+                                        onSeek(seekOffsetMs)
+                                        seekOffsetMs = 0L
+                                    }
                                 }
                             )
                         },
@@ -320,6 +371,24 @@ private fun PlayerContent(
                         modifier = Modifier.requiredSize(24.dp)
                     )
                 }
+            }
+
+            // Search button
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .requiredSize(32.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.2f))
+                    .clickable { onSearchClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = SearchIcon,
+                    contentDescription = "Search",
+                    tint = Color.White.copy(alpha = 0.7f),
+                    modifier = Modifier.requiredSize(18.dp)
+                )
             }
         }
     }

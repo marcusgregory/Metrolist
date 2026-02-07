@@ -18,9 +18,16 @@ android {
         versionName = "1.0.0"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Uses default debug keystore
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("debug")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -67,6 +74,7 @@ dependencies {
 
     // Hilt
     implementation(libs.hilt)
+    implementation(libs.hilt.navigation)
     ksp(libs.hilt.compiler)
     // Fix for Kotlin 2.3.0 + Hilt compatibility
     ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.3.0")
@@ -75,6 +83,7 @@ dependencies {
     implementation("androidx.wear.compose:compose-material3:1.0.0-alpha34")
     implementation("androidx.wear.compose:compose-foundation:1.5.0")
     implementation("androidx.wear.compose:compose-navigation:1.5.0")
+    implementation("androidx.wear:wear-input:1.2.0-alpha02")
     implementation(libs.activity)
 
     // Images

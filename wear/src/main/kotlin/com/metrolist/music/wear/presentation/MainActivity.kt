@@ -17,6 +17,8 @@ import androidx.wear.compose.navigation.composable
 import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.music.wear.player.WearMusicService
+import com.metrolist.music.wear.presentation.search.SearchScreen
+import com.metrolist.music.wear.presentation.search.WearSong
 import com.metrolist.music.wear.presentation.theme.WearTheme
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -36,7 +38,8 @@ class MainActivity : ComponentActivity() {
             WearTheme {
                 WearNavigation(
                     playerViewModel = playerViewModel,
-                    onPlayTest = { playTestVideo() }
+                    onPlayTest = { playTestVideo() },
+                    onPlaySong = { song -> playSong(song) }
                 )
             }
         }
@@ -85,14 +88,6 @@ class MainActivity : ComponentActivity() {
 
     private fun playTestVideo() {
         Timber.d("Playing test video via MediaController")
-        // For testing, we need to access the service directly
-        // In production, this would use MediaController commands
-        val sessionToken = SessionToken(
-            this,
-            ComponentName(this, WearMusicService::class.java)
-        )
-
-        // Bind to service to play queue
         val intent = android.content.Intent(this, WearMusicService::class.java)
         bindService(intent, object : android.content.ServiceConnection {
             override fun onServiceConnected(name: ComponentName?, service: android.os.IBinder?) {
@@ -117,12 +112,35 @@ class MainActivity : ComponentActivity() {
             override fun onServiceDisconnected(name: ComponentName?) {}
         }, BIND_AUTO_CREATE)
     }
+
+    private fun playSong(song: WearSong) {
+        Timber.d("Playing song: ${song.title}")
+        val intent = android.content.Intent(this, WearMusicService::class.java)
+        bindService(intent, object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: android.os.IBinder?) {
+                val binder = service as WearMusicService.MusicBinder
+                binder.service.playQueue(
+                    listOf(
+                        WearMusicService.QueueItem(
+                            videoId = song.id,
+                            title = song.title,
+                            artist = song.artist
+                        )
+                    )
+                )
+                unbindService(this)
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }, BIND_AUTO_CREATE)
+    }
 }
 
 @Composable
 fun WearNavigation(
     playerViewModel: PlayerViewModel,
-    onPlayTest: () -> Unit
+    onPlayTest: () -> Unit,
+    onPlaySong: (WearSong) -> Unit
 ) {
     val navController = rememberSwipeDismissableNavController()
 
@@ -134,10 +152,21 @@ fun WearNavigation(
             PlayerScreen(
                 viewModel = playerViewModel,
                 modifier = Modifier,
+                onSearchClick = {
+                    navController.navigate("search") {
+                        launchSingleTop = true
+                    }
+                },
                 onPlayTest = onPlayTest
             )
         }
-        // Phase 3: Add more destinations
-        // composable("search") { SearchScreen() }
+        composable("search") {
+            SearchScreen(
+                onSongClick = { song ->
+                    onPlaySong(song)
+                    navController.popBackStack("player", inclusive = false)
+                }
+            )
+        }
     }
 }

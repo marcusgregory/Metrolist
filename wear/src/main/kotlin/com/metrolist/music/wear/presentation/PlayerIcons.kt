@@ -130,3 +130,32 @@ val SkipPreviousIcon: ImageVector
             close()
         }
     }.build()
+
+val SearchIcon: ImageVector
+    get() = ImageVector.Builder(
+        name = "Search",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        path(
+            fill = null,
+            fillAlpha = 1f,
+            stroke = SolidColor(Color.Black),
+            strokeAlpha = 1f,
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round,
+            strokeLineMiter = 1f,
+            pathFillType = PathFillType.NonZero
+        ) {
+            // Circle
+            moveTo(11f, 19f)
+            arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 11f, 3f)
+            arcTo(8f, 8f, 0f, isMoreThanHalf = true, isPositiveArc = true, 11f, 19f)
+            // Line
+            moveTo(21f, 21f)
+            lineTo(16.65f, 16.65f)
+        }
+    }.build()
