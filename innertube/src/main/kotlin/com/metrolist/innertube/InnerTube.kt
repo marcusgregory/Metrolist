@@ -152,11 +152,13 @@ class InnerTube {
             append("Referer", YouTubeClient.REFERER_YOUTUBE_MUSIC)
             visitorData?.let { append("X-Goog-Visitor-Id", it) }
             if (setLogin && client.loginSupported) {
-                // Priority: Bearer token first (OAuth2), then SAPISIDHASH (cookie-based)
-                bearerToken?.let { token ->
-                    append("Authorization", "Bearer $token")
-                } ?: cookie?.let { cookie ->
-                    // Fallback: SAPISIDHASH (cookie-based auth)
+                // Bearer token (OAuth2) only works with TV clients
+                // Other clients (WEB_REMIX, etc.) need cookie-based auth (SAPISIDHASH)
+                val isTvClient = client.clientName.startsWith("TV")
+                if (isTvClient && bearerToken != null) {
+                    append("Authorization", "Bearer $bearerToken")
+                } else cookie?.let { cookie ->
+                    // Cookie-based auth (SAPISIDHASH)
                     append("cookie", cookie)
                     if ("SAPISID" !in cookieMap) return@let
                     val currentTime = System.currentTimeMillis() / 1000

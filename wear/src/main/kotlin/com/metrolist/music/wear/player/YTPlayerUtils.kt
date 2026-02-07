@@ -88,7 +88,7 @@ object YTPlayerUtils {
         val signatureTimestamp = getSignatureTimestampOrNull(videoId)
         Timber.tag(logTag).d("Signature timestamp: $signatureTimestamp")
 
-        val isLoggedIn = YouTube.cookie != null
+        val isLoggedIn = YouTube.cookie != null || YouTube.bearerToken != null
         val sessionId =
             if (isLoggedIn) {
                 // signed in sessions use dataSyncId as identifier
@@ -128,7 +128,7 @@ object YTPlayerUtils {
                 client = STREAM_FALLBACK_CLIENTS[clientIndex]
                 Timber.tag(logTag).d("Trying fallback client ${clientIndex + 1}/${STREAM_FALLBACK_CLIENTS.size}: ${client.clientName}")
 
-                if (client.loginRequired && !isLoggedIn && YouTube.cookie == null) {
+                if (client.loginRequired && !isLoggedIn) {
                     // skip client if it requires login but user is not logged in
                     Timber.tag(logTag).d("Skipping client ${client.clientName} - requires login but user is not logged in")
                     continue
