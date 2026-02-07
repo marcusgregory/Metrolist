@@ -1,166 +1,143 @@
 package com.metrolist.music.wear.presentation
 
 import android.content.ComponentName
-import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
 import android.os.Bundle
-import android.os.IBinder
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.size
+import androidx.activity.viewModels
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.CircularProgressIndicator
-import androidx.wear.compose.material3.MaterialTheme
-import androidx.wear.compose.material3.Text
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import androidx.wear.compose.navigation.SwipeDismissableNavHost
+import androidx.wear.compose.navigation.composable
+import androidx.wear.compose.navigation.rememberSwipeDismissableNavController
+import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.music.wear.player.WearMusicService
+import com.metrolist.music.wear.presentation.theme.WearTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import timber.log.Timber
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
-    private var musicService: WearMusicService? = null
-    private var bound = false
-    private var serviceState = mutableStateOf<WearMusicService?>(null)
-
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            Timber.d("Service connected")
-            val binder = service as WearMusicService.MusicBinder
-            musicService = binder.service
-            serviceState.value = binder.service
-            bound = true
-        }
-
-        override fun onServiceDisconnected(name: ComponentName?) {
-            Timber.d("Service disconnected")
-            musicService = null
-            serviceState.value = null
-            bound = false
-        }
-    }
+    private val playerViewModel: PlayerViewModel by viewModels()
+    private var mediaController: MediaController? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Timber.d("MainActivity onCreate")
 
-        // Bind to service
-        Intent(this, WearMusicService::class.java).also { intent ->
-            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        setContent {
+            WearTheme {
+                WearNavigation(
+                    playerViewModel = playerViewModel,
+                    onPlayTest = { playTestVideo() }
+                )
+            }
         }
 
-        setContent {
-            WearApp(
-                service = serviceState.value,
-                onPlayTest = { playTestVideo() }
-            )
+        // Connect to MediaController
+        connectToMediaController()
+    }
+
+    private fun connectToMediaController() {
+        val sessionToken = SessionToken(
+            this,
+            ComponentName(this, WearMusicService::class.java)
+        )
+
+        val controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
+
+        controllerFuture.addListener({
+            try {
+                mediaController = controllerFuture.get()
+                Timber.d("MediaController connected")
+                mediaController?.let { controller ->
+                    playerViewModel.attachController(controller)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to connect MediaController")
+            }
+        }, MoreExecutors.directExecutor())
+
+        // Also observe lifecycle to reattach when resuming
+        lifecycleScope.launch {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                mediaController?.let { controller ->
+                    playerViewModel.attachController(controller)
+                }
+            }
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        if (bound) {
-            unbindService(serviceConnection)
-            bound = false
-        }
+        Timber.d("MainActivity onDestroy")
+        playerViewModel.detachController()
+        mediaController?.release()
+        mediaController = null
     }
 
     private fun playTestVideo() {
-        Timber.d("Playing test video")
-        musicService?.playByVideoId(
-            videoId = "dQw4w9WgXcQ", // Rick Astley - Never Gonna Give You Up
-            title = "Never Gonna Give You Up",
-            artist = "Rick Astley"
+        Timber.d("Playing test video via MediaController")
+        // For testing, we need to access the service directly
+        // In production, this would use MediaController commands
+        val sessionToken = SessionToken(
+            this,
+            ComponentName(this, WearMusicService::class.java)
         )
+
+        // Bind to service to play queue
+        val intent = android.content.Intent(this, WearMusicService::class.java)
+        bindService(intent, object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: ComponentName?, service: android.os.IBinder?) {
+                val binder = service as WearMusicService.MusicBinder
+                binder.service.playQueue(
+                    listOf(
+                        WearMusicService.QueueItem(
+                            videoId = "07JkrRIPr_w",
+                            title = "Test Song 1",
+                            artist = "Artist 1"
+                        ),
+                        WearMusicService.QueueItem(
+                            videoId = "dQw4w9WgXcQ",
+                            title = "Never Gonna Give You Up",
+                            artist = "Rick Astley"
+                        )
+                    )
+                )
+                unbindService(this)
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {}
+        }, BIND_AUTO_CREATE)
     }
 }
 
 @Composable
-fun WearApp(
-    service: WearMusicService?,
+fun WearNavigation(
+    playerViewModel: PlayerViewModel,
     onPlayTest: () -> Unit
 ) {
-    var status by remember { mutableStateOf("Connecting...") }
-    var isPlaying by remember { mutableStateOf(false) }
+    val navController = rememberSwipeDismissableNavController()
 
-    // Update status when service connects
-    LaunchedEffect(service) {
-        status = if (service != null) "Ready to play" else "Connecting..."
-    }
-
-    MaterialTheme {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = "Metrolist Wear",
-                style = MaterialTheme.typography.titleMedium,
-                textAlign = TextAlign.Center
+    SwipeDismissableNavHost(
+        navController = navController,
+        startDestination = "player"
+    ) {
+        composable("player") {
+            PlayerScreen(
+                viewModel = playerViewModel,
+                modifier = Modifier,
+                onPlayTest = onPlayTest
             )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Text(
-                text = status,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (service == null) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp)
-                )
-            } else {
-                Button(
-                    onClick = {
-                        onPlayTest()
-                        isPlaying = true
-                        status = "Playing..."
-                    }
-                ) {
-                    Text(if (isPlaying) "Playing..." else "Play Test")
-                }
-
-                if (isPlaying) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = {
-                            service.getPlayer().let { player ->
-                                if (player.isPlaying) {
-                                    player.pause()
-                                    status = "Paused"
-                                } else {
-                                    player.play()
-                                    status = "Playing..."
-                                }
-                            }
-                        }
-                    ) {
-                        Text("Play/Pause")
-                    }
-                }
-            }
         }
+        // Phase 3: Add more destinations
+        // composable("search") { SearchScreen() }
     }
 }

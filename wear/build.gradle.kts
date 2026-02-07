@@ -77,8 +77,13 @@ dependencies {
     implementation("androidx.wear.compose:compose-navigation:1.5.0")
     implementation(libs.activity)
 
-    // Horologist (for Phase 2 - Player UI)
-    // TODO: Add horologist-compose-layout and horologist-audio-ui in Phase 2
+    // Images
+    implementation(libs.coil)
+    implementation(libs.coil.network.okhttp)
+
+    // Lifecycle
+    implementation(libs.viewmodel.compose)
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
 
     // Utils
     implementation(libs.timber)

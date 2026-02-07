@@ -182,25 +182,47 @@ class WearMusicService : MediaLibraryService() {
      * Play a YouTube video by its ID.
      * Used by the UI to start playback.
      */
-    fun playByVideoId(videoId: String, title: String = "", artist: String = "") {
+    fun playByVideoId(videoId: String, title: String = "", artist: String = "", artworkUrl: String? = null) {
         Timber.d("playByVideoId: $videoId, title: $title, artist: $artist")
-
-        val mediaItem = MediaItem.Builder()
-            .setMediaId(videoId)
-            .setUri("https://music.youtube.com/watch?v=$videoId") // Dummy URI, ResolvingDataSource resolves it
-            .setCustomCacheKey(videoId) // Required for ResolvingDataSource to get the media ID
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(title.ifEmpty { videoId })
-                    .setArtist(artist.ifEmpty { "Unknown Artist" })
-                    .build()
-            )
-            .build()
-
+        val mediaItem = buildMediaItem(videoId, title, artist, artworkUrl)
         player.setMediaItem(mediaItem)
         player.prepare()
         player.play()
     }
+
+    /**
+     * Play a list of videos as a queue.
+     */
+    fun playQueue(items: List<QueueItem>) {
+        Timber.d("playQueue: ${items.size} items")
+        val mediaItems = items.map { buildMediaItem(it.videoId, it.title, it.artist, it.artworkUrl) }
+        player.setMediaItems(mediaItems)
+        player.prepare()
+        player.play()
+    }
+
+    private fun buildMediaItem(videoId: String, title: String, artist: String, artworkUrl: String?): MediaItem {
+        val artwork = artworkUrl ?: "https://i.ytimg.com/vi/$videoId/maxresdefault.jpg"
+        return MediaItem.Builder()
+            .setMediaId(videoId)
+            .setUri("https://music.youtube.com/watch?v=$videoId")
+            .setCustomCacheKey(videoId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title.ifEmpty { videoId })
+                    .setArtist(artist.ifEmpty { "Unknown Artist" })
+                    .setArtworkUri(artwork.toUri())
+                    .build()
+            )
+            .build()
+    }
+
+    data class QueueItem(
+        val videoId: String,
+        val title: String = "",
+        val artist: String = "",
+        val artworkUrl: String? = null
+    )
 
     /**
      * Get the ExoPlayer instance for direct control.
